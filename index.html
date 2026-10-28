@@ -2,6 +2,10 @@
 <html lang="pt-BR"><head><meta charset="utf-8">
 <title>Peres Lavagem Automotiva · Agendamentos</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Agende sua lavagem automotiva na Peres Lavagem Automotiva.">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <meta name="theme-color" content="#04070d">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -242,4 +246,14 @@ document.addEventListener("click",ev=>{const el=ev.target.closest("[data-a]");if
 });
 $("#md").addEventListener("click",e=>{if(e.target.id==="md")closeSheet()});
 render();init();
-</script></body></html>
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("./sw.js").catch(function (error) {
+      console.warn("Não foi possível registrar o service worker:", error);
+    });
+  });
+}
+</script>
+</body></html>
