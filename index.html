@@ -108,7 +108,7 @@ input:focus,select:focus{border-color:var(--b2);box-shadow:0 0 0 3px rgba(56,182
 <div id="adm"><main id="am"></main></div>
 <script>
 const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const KEY="peres_v3",WA="5555999473808",SL=[["07:30","09:00"],["09:00","10:30"],["10:30","12:00"],["13:30","15:00"],["15:00","16:30"],["16:30","18:00"],["18:00","19:30"]];
+const KEY="peres_sess",WA="5555999473808",SL=[["07:30","09:00"],["09:00","10:30"],["10:30","12:00"],["13:30","15:00"],["15:00","16:30"],["16:30","18:00"],["18:00","19:30"]];
 const TN={carro:"Carro",suv:"SUV",caminhonete:"Caminhonete"},brl=n=>"R$ "+Number(n).toFixed(2).replace(".",",");
 const SV=[["comercial","Lavagem comercial","Limpeza externa e interna completa: rodas, pretinho nos pneus, vidros, aspiração, painéis, portas e tapetes."],
 ["detalhada","Lavagem detalhada","Limpeza minuciosa, detalhe por detalhe, por dentro e por fora."],
@@ -124,13 +124,21 @@ const DEF={comercial:{carro:70,suv:80,caminhonete:90},detalhada:{carro:180,suv:1
 const svi=id=>SV.find(s=>s[0]===id)||[],svn=id=>svi(id)[1]||"Serviço",svm=id=>svi(id)[3]==="u",svf=id=>!!svi(id)[4];
 let mem=null;
 const pv=(s,t)=>{const o=S.svc[s],v=o&&o[svm(s)?"u":t];return v===""||v==null?null:+v},pt=v=>v==null?"Sob consulta":brl(v).replace(",00",""),tot=(s,t)=>{const v=pv(s,t);return v==null?"a combinar":(svf(s)?"a partir de ":"")+brl(v)};
-function seed(){const base={type:"carro",phone:"",email:"",status:"agendado"};
- const bruna={...base,name:"Bruna Casali",svc:"detalhada",price:180,vehicle:"Renault Fluence",color:""};
- const svc=JSON.parse(JSON.stringify(DEF));
- return{pin:"2828",svc,book:{"2026-10-28":{"07:30":{...bruna,span:3},"09:00":{...bruna,ref:"07:30"},"10:30":{...bruna,ref:"07:30"},
- "13:30":{...base,name:"Eduardo Carvalho",svc:"comercial",price:70,vehicle:"Chevrolet Prisma",color:"Branco"}}}}}
-function load(){try{const r=localStorage.getItem(KEY);if(r)return JSON.parse(r)}catch(e){}return mem||seed()}
-var S;S=load();function save(){mem=S;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+const U="https://cdidqxdzmozckrqslbhg.supabase.co",K="sb_publishable_SwlGHgRPntp6v22ytJ0neA_Vd3Z2ra_";
+var S={svc:DEF,book:{},admin:false,ready:0,err:0},sess=null;
+function setSess(j){sess=j?{a:j.access_token,r:j.refresh_token,exp:Date.now()+(j.expires_in||3600)*1000}:null;try{sess?localStorage.setItem(KEY,JSON.stringify(sess)):localStorage.removeItem(KEY)}catch(e){}}
+async function ensure(){if(!sess||Date.now()<sess.exp-60000)return;try{const r=await fetch(U+"/auth/v1/token?grant_type=refresh_token",{method:"POST",headers:{apikey:K,"Content-Type":"application/json"},body:JSON.stringify({refresh_token:sess.r})});if(!r.ok)throw 0;setSess(await r.json())}catch(e){setSess(null);S.admin=false}}
+async function api(path,o={}){const h={apikey:K,"Content-Type":"application/json"};if(o.auth){await ensure();if(!sess){const e=new Error("auth");e.status=401;throw e}h.Authorization="Bearer "+sess.a}if(o.prefer)h.Prefer=o.prefer;
+ const r=await fetch(U+"/rest/v1/"+path,{method:o.method||"GET",headers:h,body:o.body?JSON.stringify(o.body):undefined});const tx=await r.text();if(!r.ok){const e=new Error(r.status);e.status=r.status;throw e}return tx?JSON.parse(tx):null}
+const toBook=rows=>{const b={};rows.forEach(r=>{if(r.status==="cancelado")return;(b[r.date]=b[r.date]||{})[r.time]={...r,price:+r.price||0}});return b};
+async function refresh(){try{if(S.admin)S.book=toBook(await api("bookings?select=*&order=date,time&limit=5000",{auth:true}));
+ else S.book=toBook(await api("horarios_ocupados?select=date,time,status&date=gte."+dk(new Date(Date.now()-864e5))));S.err=0;S.ready=1}
+ catch(e){if(S.admin&&(e.status===401||e.status===403)){S.admin=false;setSess(null);$("#adm").classList.remove("on");toast("Sessão expirada");return refresh()}S.err=1}
+ try{const c=await api("config?id=eq.1&select=svc");if(c&&c[0])S.svc=c[0].svc}catch(e){}
+ render();if($("#adm").classList.contains("on"))adm()}
+async function init(){try{const r=localStorage.getItem(KEY);if(r)sess=JSON.parse(r)}catch(e){}
+ if(sess){try{await ensure();const a=await api("admins?select=user_id",{auth:true});S.admin=!!(a&&a.length);if(!S.admin)setSess(null)}catch(e){setSess(null)}}
+ await refresh();setInterval(()=>{if(!document.hidden&&!$("#md").classList.contains("on")&&!$("#adm").classList.contains("on"))refresh()},30000)}
 const dk=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 const fmt=k=>k.split("-").reverse().slice(0,2).join("/");
 const DOW=["dom","seg","ter","qua","qui","sex","sáb"];
@@ -144,12 +152,13 @@ function render(){
  $("#wa").href="https://wa.me/"+WA;
  $("#svs").innerHTML=SV.map(([id,n,d,m,f])=>{const ks=(m==="u"?["u"]:Object.keys(TN)).filter(k=>pv(id,k)!=null);return`<div class="sv"><b>${n}</b><p>${d}</p><div class="pp">${ks.length?ks.map(k=>`<span class="pill d">${m==="u"?(f?"A partir de ":""):TN[k]+" "}${pt(pv(id,k))}</span>`).join(""):`<span class="pill x">Sob consulta · chame no WhatsApp</span>`}</div></div>`}).join("");
  $("#days").innerHTML=daysHtml(sel,"day");
+ if(!S.ready){$("#slots").innerHTML=S.err?`<div class="lunch">Sem conexão com o servidor.<br><button class="btn sm" style="margin-top:8px" data-a="retry">Tentar de novo</button></div>`:`<div class="lunch">Carregando horários…</div>`;return}
  let h="";SL.forEach(([a,u],i)=>{if(a==="13:30")h+=`<div class="lunch">🍴 Almoço · 12:00 às 13:30</div>`;
   const x=bk(sel,a),p=past(sel,a);let st,cls="free",pill=`<span class="pill f">Livre</span>`,inf=`<small>Toque para agendar</small>`;
   if(p){cls="busy";pill=`<span class="pill x">Encerrado</span>`;inf=`<small>Horário já passou</small>`}
   else if(x){cls="busy";pill=x.status==="bloqueado"?`<span class="pill x">Indisponível</span>`:`<span class="pill o">Ocupado</span>`;inf=`<small>${x.status==="bloqueado"?"Bloqueado":"Já reservado"}</small>`}
   h+=`<div class="slot ${cls}" style="animation-delay:${i*50}ms" ${cls==="free"?`data-a="book" data-t="${a}"`:""}><div class="tm">${a}</div><div class="inf"><b>Horário ${i+1}</b>${inf.replace("<small>","<small>Até "+u+" · ")}</div>${pill}</div>`});
- $("#slots").innerHTML=h}
+ $("#slots").innerHTML=(S.err?`<div class="lunch">Sem conexão. Os horários podem estar desatualizados. <a href="#" data-a="retry" style="color:var(--b2)">Atualizar</a></div>`:"")+h}
 function sheet(h){$("#sh").innerHTML=h;$("#md").classList.add("on")}
 function closeSheet(){$("#md").classList.remove("on")}
 let F={};
@@ -167,11 +176,14 @@ function typeBtns(){$("#ft").innerHTML=Object.keys(TN).map(k=>`<button class="ty
 document.addEventListener("change",e=>{if(e.target.id==="fs"){F.svc=e.target.value;typeBtns()}});
 function mask(v){v=v.replace(/\D/g,"").slice(0,11);return v.length>6?`(${v.slice(0,2)}) ${v.slice(2,7)}-${v.slice(7)}`:v.length>2?`(${v.slice(0,2)}) ${v.slice(2)}`:v}
 document.addEventListener("input",e=>{if(e.target.id==="fp")e.target.value=mask(e.target.value)});
-function confirmB(){const n=$("#fn").value.trim(),p=$("#fp").value.trim(),e=$("#fe").value.trim(),v=$("#fv").value.trim(),c=$("#fc").value.trim();
- if(n.length<3)return toast("Informe seu nome");if(p.replace(/\D/g,"").length<10)return toast("Informe um telefone válido");
+async function confirmB(btn){if(F.busy)return;const n=$("#fn").value.trim(),p=$("#fp").value.trim(),e=$("#fe").value.trim(),v=$("#fv").value.trim(),c=$("#fc").value.trim();
+ if(n.length<3)return toast("Informe o nome");if(p.replace(/\D/g,"").length<10)return toast("Informe um telefone válido");
  if(e&&!/^\S+@\S+\.\S+$/.test(e))return toast("E-mail inválido");if(!v)return toast("Informe o veículo");if(!c)return toast("Informe a cor");
- if(bk(F.d,F.t))return toast("Esse horário acabou de ser ocupado"),closeSheet(),render();
- (S.book[F.d]=S.book[F.d]||{})[F.t]={name:n,phone:p,email:e,type:svm(F.svc)?"":F.type,price:pv(F.svc,F.type)||0,svc:F.svc,vehicle:v,color:c,status:"agendado"};save();render();if($("#adm").classList.contains("on"))adm();
+ F.busy=1;btn.disabled=true;btn.textContent="Enviando…";
+ const row={date:F.d,time:F.t,status:"agendado",name:n,phone:p,email:e||null,type:svm(F.svc)?"":F.type,svc:F.svc,price:pv(F.svc,F.type)||0,vehicle:v,color:c};
+ try{await api("bookings",{method:"POST",body:row,prefer:"return=minimal",auth:F.admin})}
+ catch(err){F.busy=0;btn.disabled=false;btn.textContent="Confirmar";if(err.status===409){toast("Esse horário acabou de ser ocupado");closeSheet();refresh()}else if(err.status===401||err.status===403)toast("Sem permissão para agendar");else toast("Erro ao salvar. Tente de novo");return}
+ await refresh();
  if(F.admin){closeSheet();return toast("Agendamento criado")}
  const msg=encodeURIComponent(`Olá! Agendei na Peres Lavagem: ${fmt(F.d)} às ${F.t}. ${svn(F.svc)} · ${svm(F.svc)?"":TN[F.type]} ${v} ${c}. Nome: ${n}.`);
  sheet(`<div class="ok-box"><div class="ck">✓</div><h2>Agendado!</h2><p class="det">${fmt(F.d)} às ${F.t} · ${esc(v)} ${esc(c)}<br>Total: ${tot(F.svc,F.type)}</p>
@@ -192,29 +204,42 @@ function adm(){const d=aSel,day=S.book[d]||{},dt=new Date(d+"T12:00:00"),mo=new 
  if(tab==="cl"){const m={};Object.entries(S.book).forEach(([dd,o])=>Object.entries(o).forEach(([t,x])=>{if(x.ref||x.status==="bloqueado"||x.status==="cancelado")return;const k=x.name.toLowerCase();const c=m[k]=m[k]||{x,n:0,tot:0,last:""};c.n++;c.tot+=x.price||0;if(dd>c.last)c.last=dd}));
   const L=Object.values(m).sort((a,b)=>b.n-a.n);h+=L.length?L.map(c=>`<div class="card"><b>${esc(c.x.name)}</b> <span class="pill d">${c.n} lavagem(ns)</span><div class="det">${esc(c.x.phone||"sem telefone")}${c.x.email?" · "+esc(c.x.email):""}<br>${esc(c.x.vehicle)} ${esc(c.x.color)} · Último: ${fmt(c.last)} · ${brl(c.tot)}</div></div>`).join(""):`<p class="det">Nenhum cliente ainda.</p>`}
  if(tab==="cf"){h+=`<div class="card"><b class="hd">Valores dos serviços (R$)</b><p class="det">Deixe em branco para aparecer “Sob consulta” para o cliente.</p>${SV.map(s=>`<label style="color:var(--tx);font-weight:600;font-size:14px">${s[1]}</label><div class="row">${(s[3]==="u"?["u"]:Object.keys(TN)).map(k=>`<div><label>${k==="u"?(s[4]?"A PARTIR DE":"VALOR"):TN[k].toUpperCase()}</label><input type="number" min="0" inputmode="decimal" data-s="${s[0]}" data-k="${k}" value="${(S.svc[s[0]]||{})[k]??""}"></div>`).join("")}</div>`).join("")}
-  <label>PIN DO ADMIN</label><input id="pin" inputmode="numeric" value="${esc(S.pin)}"><br><br><button class="btn w" data-a="cfg">Salvar</button></div>
-  <div class="card"><b class="hd">Dados</b><p class="det">Por enquanto os dados ficam salvos neste aparelho. Depois ligamos ao Supabase (login Google / e-mail) para valer para todos.</p><div class="acts"><button class="btn g sm" data-a="exp">Exportar JSON</button><button class="btn r sm" data-a="reset">Restaurar dados de teste</button></div></div>`}
+  <br><button class="btn w" data-a="cfg">Salvar valores</button></div>
+  <div class="card"><b class="hd">Conta</b><p class="det">Dados salvos no Supabase. Você está logado como administrador.</p><div class="acts"><button class="btn g sm" data-a="exp">Exportar JSON</button><button class="btn r sm" data-a="logout">Encerrar sessão</button></div></div>`}
  $("#am").innerHTML=h}
-function setB(d,t,v){S.book[d]=S.book[d]||{};if(v)S.book[d][t]=v;else delete S.book[d][t];save();render();adm()}
-document.addEventListener("click",ev=>{const el=ev.target.closest("[data-a]");if(!el)return;const a=el.dataset.a,t=el.dataset.t,k=el.dataset.k;
+const root=t=>{const x=bk(aSel,t);return x&&x.ref?x.ref:t};
+const flt=t=>"bookings?date=eq."+aSel+"&or="+encodeURIComponent(`(time.eq.${root(t)},ref.eq.${root(t)})`);
+async function act(fn,ok){try{await fn();await refresh();toast(ok)}catch(e){toast(e.status===409?"Horário já ocupado":"Erro. Tente de novo");refresh()}}
+function openAdmin(){if(S.admin){$("#adm").classList.add("on");return adm()}
+ sheet(`<h2 style="font-size:20px">Área do administrador</h2><label>E-MAIL</label><input id="ae" type="email" autocomplete="username"><label>SENHA</label><input id="ap" type="password" autocomplete="current-password"><br><br><button class="btn w" data-a="login">Entrar</button>`)}
+async function doLogin(btn){const em=$("#ae").value.trim(),pw=$("#ap").value;if(!em||!pw)return toast("Informe e-mail e senha");btn.disabled=true;btn.textContent="Entrando…";
+ try{const r=await fetch(U+"/auth/v1/token?grant_type=password",{method:"POST",headers:{apikey:K,"Content-Type":"application/json"},body:JSON.stringify({email:em,password:pw})});if(!r.ok)throw 1;setSess(await r.json());
+  const a=await api("admins?select=user_id",{auth:true});if(!a||!a.length){setSess(null);throw 2}
+  S.admin=true;closeSheet();$("#adm").classList.add("on");await refresh()}
+ catch(e){btn.disabled=false;btn.textContent="Entrar";toast(e===2?"Esta conta não é de administrador":"E-mail ou senha incorretos")}}
+async function saveCfg(){const n=JSON.parse(JSON.stringify(S.svc));document.querySelectorAll("[data-s]").forEach(i=>{n[i.dataset.s]=n[i.dataset.s]||{};n[i.dataset.s][i.dataset.k]=i.value===""?"":Math.max(0,+i.value||0)});
+ try{await api("config?id=eq.1",{method:"PATCH",auth:true,body:{svc:n,updated_at:new Date().toISOString()}});await refresh();toast("Valores salvos")}catch(e){toast("Não foi possível salvar")}}
+function logout(){setSess(null);S.admin=false;$("#adm").classList.remove("on");refresh();toast("Sessão encerrada")}
+document.addEventListener("click",ev=>{const el=ev.target.closest("[data-a]");if(!el)return;const a=el.dataset.a,t=el.dataset.t,k=el.dataset.k;if(el.tagName==="A"&&el.getAttribute("href")==="#")ev.preventDefault();
  if(a==="day"){sel=el.dataset.d;render()}
  else if(a==="aday"){aSel=el.dataset.d;adm()}
  else if(a==="book")form(sel,t,false);
  else if(a==="mbook")form(aSel,t,true);
  else if(a==="type"){F.type=k;typeBtns()}
- else if(a==="confirm")confirmB();
+ else if(a==="confirm")confirmB(el);
  else if(a==="close")closeSheet();
- else if(a==="admin")sheet(`<h2 style="font-size:20px">Área do administrador</h2><label>PIN</label><input id="pin2" type="password" inputmode="numeric" placeholder="••••"><br><br><button class="btn w" data-a="pinok">Entrar</button>`);
- else if(a==="pinok"){if($("#pin2").value===S.pin){closeSheet();$("#adm").classList.add("on");adm()}else toast("PIN incorreto")}
+ else if(a==="retry")refresh();
+ else if(a==="admin")openAdmin();
+ else if(a==="login")doLogin(el);
  else if(a==="exit"){$("#adm").classList.remove("on");render()}
  else if(a==="tab"){tab=k;adm()}
- else if(a==="block")setB(aSel,t,{status:"bloqueado"});
- else if(a==="free"){const x=bk(aSel,t),r=x&&(x.ref||(x.span?t:null));if(r){const o=S.book[aSel];for(const k in o)if(k===r||o[k].ref===r)delete o[k];save();render();adm()}else setB(aSel,t,null)}
- else if(a==="done"){const x=bk(aSel,t),o=S.book[aSel];for(const k in o)if(k===t||o[k].ref===t)o[k].status="concluido";save();adm();toast("Marcado como concluído")}
- else if(a==="cfg"){document.querySelectorAll("[data-s]").forEach(i=>{S.svc[i.dataset.s]=S.svc[i.dataset.s]||{};S.svc[i.dataset.s][i.dataset.k]=i.value===""?"":Math.max(0,+i.value||0)});const p=$("#pin").value.trim();if(p.length>=4)S.pin=p;save();render();toast("Salvo")}
- else if(a==="reset"){if(!window.rc){window.rc=1;el.textContent="Toque de novo para confirmar";setTimeout(()=>{window.rc=0;if(el.isConnected)el.textContent="Restaurar dados de teste"},3000)}else{window.rc=0;S=seed();save();render();adm();toast("Dados restaurados")}}
- else if(a==="exp"){const b=new Blob([JSON.stringify(S,null,1)],{type:"application/json"});const u=URL.createObjectURL(b);const l=document.createElement("a");l.href=u;l.download="peres-agenda.json";l.click();toast("Exportando…")}
+ else if(a==="block")act(()=>api("bookings",{method:"POST",auth:true,body:{date:aSel,time:t,status:"bloqueado"},prefer:"return=minimal"}),"Horário bloqueado");
+ else if(a==="free")act(()=>api(flt(t),{method:"DELETE",auth:true}),"Horário liberado");
+ else if(a==="done")act(()=>api(flt(t),{method:"PATCH",auth:true,body:{status:"concluido"}}),"Marcado como concluído");
+ else if(a==="cfg")saveCfg();
+ else if(a==="logout")logout();
+ else if(a==="exp"){const b=new Blob([JSON.stringify(S.book,null,1)],{type:"application/json"});const u=URL.createObjectURL(b);const l=document.createElement("a");l.href=u;l.download="peres-agenda.json";l.click();toast("Exportando…")}
 });
 $("#md").addEventListener("click",e=>{if(e.target.id==="md")closeSheet()});
-render();
+render();init();
 </script></body></html>
